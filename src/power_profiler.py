@@ -2,7 +2,7 @@ import time
 import csv
 import datetime
 import logging
-from threading import Thread
+from threading import Event, RLock, Thread
 from ppk2_api.ppk2_api import PPK2_MP as PPK2_API
 
 logger = logging.getLogger(__name__)
@@ -12,6 +12,13 @@ class PowerProfiler():
         """Initialize PPK2 power profiler with serial"""
         self.measuring = None
         self.measurement_thread = None
+        # measure_lock is taken by the measurement thread whenever it is fetching data and by the main thread whenever measuring is paused
+        # it is also used to protect the member variables that are accessed both by the main thread and the measurement thread
+        self.measure_lock = RLock()
+        self.measure_lock.acquire()
+
+        # stop is a flag which is used to signal to the 
+        self.stop = Event()
         self.ppk2 = None
 
         logger.debug("Initing power profiler")
@@ -57,8 +64,6 @@ class PowerProfiler():
 
             time.sleep(1)
 
-            self.stop = False
-
             self.measurement_thread = Thread(target=self.measurement_loop, daemon=True)
             self.measurement_thread.start()
 
@@ -82,8 +87,8 @@ class PowerProfiler():
 
     def delete_power_profiler(self):
         """Join thread"""
-        self.measuring = False
-        self.stop = True
+        self.stop.set()
+        self.stop_measuring()
 
         logger.debug("Deleting power profiler")
 
@@ -112,36 +117,41 @@ class PowerProfiler():
 
     def enable_power(self):
         """Enable ppk2 power"""
-        if self.ppk2:
-            self.ppk2.toggle_DUT_power("ON")
-            return True
-        return False
+        with self.measure_lock:
+            if self.ppk2:
+                self.ppk2.toggle_DUT_power("ON")
+                return True
+            return False
 
     def disable_power(self):
         """Disable ppk2 power"""
-        if self.ppk2:
-            self.ppk2.toggle_DUT_power("OFF")
-            return True
-        return False
+        with self.measure_lock:
+            if self.ppk2:
+                self.ppk2.toggle_DUT_power("OFF")
+                return True
+            return False
 
     def use_source_meter(self):
         """Switch to source meter mode"""
-        if self.ppk2:
-            self.ppk2.use_source_meter()
-            return True
-        return False
+        with self.measure_lock:
+            if self.ppk2:
+                self.ppk2.use_source_meter()
+                return True
+            return False
 
     def use_ampere_meter(self):
         """Switch to source meter mode"""
-        if self.ppk2:
-            self.ppk2.use_ampere_meter()
-            return True
-        return False
+        with self.measure_lock:
+            if self.ppk2:
+                self.ppk2.use_ampere_meter()
+                return True
+            return False
 
     def measurement_loop(self):
         """Endless measurement loop will run in a thread"""
-        while True and not self.stop:
-            if self.measuring:  # read data if currently measuring
+        while True and not self.stop.is_set():
+            with self.measure_lock:
+                # read data if currently measuring
                 read_data = self.ppk2.get_data()
                 if read_data != b'':
                     samples = self.ppk2.get_samples(read_data)
@@ -159,52 +169,62 @@ class PowerProfiler():
 
     def start_measuring(self):
         """Start measuring"""
-        if not self.measuring:  # toggle measuring flag only if currently not measuring
-            self.current_measurements = []  # reset current measurements
-            self.measuring = True  # set internal flag
-            self.ppk2.start_measuring()  # send command to ppk2
-            self.measurement_start_time = time.time()
+        with self.measure_lock:  
+            if not self.measuring:  # toggle measuring flag only if currently not measuring
+                self.current_measurements = []  # reset current measurements
+                self.measure_lock.release()
+                self.measuring = True  # set internal flag
+                self.ppk2.start_measuring()  # send command to ppk2
+                self.measurement_start_time = time.time()
 
     def stop_measuring(self):
         """Stop measuring and return average of period"""
-        self.measurement_stop_time = time.time()
-        self.measuring = False
-        self.ppk2.stop_measuring()  # send command to ppk2
+        with self.measure_lock:
+            self.measuring = False
+            self.measure_lock.acquire()
+            self.measurement_stop_time = time.time()
+            self.ppk2.stop_measuring()  # send command to ppk2
 
-        #samples_average = self._average_samples(self.current_measurements, 1000)
-        if self.filename is not None:
-            self.write_csv_rows(self.current_measurements)
+            #samples_average = self._average_samples(self.current_measurements, 1000)
+            if self.filename is not None:
+                self.write_csv_rows(self.current_measurements)
 
     def get_min_current_mA(self):
-        return min(self.current_measurements) / 1000
+        with self.measure_lock:
+            return min(self.current_measurements) / 1000
 
     def get_max_current_mA(self):
-        return max(self.current_measurements) / 1000
+        with self.measure_lock:
+            return max(self.current_measurements) / 1000
 
     def get_num_measurements(self):
-        return len(self.current_measurements)
+        with self.measure_lock:
+            return len(self.current_measurements)
 
     def get_average_current_mA(self):
         """Returns average current of last measurement in mA"""
-        if len(self.current_measurements) == 0:
-            return 0
+        with self.measure_lock:
+            if len(self.current_measurements) == 0:
+                return 0
 
-        average_current_mA = (sum(self.current_measurements) / len(self.current_measurements)) / 1000 # measurements are in microamperes, divide by 1000
-        return average_current_mA
+            average_current_mA = (sum(self.current_measurements) / len(self.current_measurements)) / 1000 # measurements are in microamperes, divide by 1000
+            return average_current_mA
 
     def get_average_power_consumption_mWh(self):
         """Return average power consumption of last measurement in mWh"""
-        average_current_mA = self.get_average_current_mA()
-        average_power_mW = (self.source_voltage_mV / 1000) * average_current_mA  # divide by 1000 as source voltage is in millivolts - this gives us milliwatts
-        measurement_duration_h = self.get_measurement_duration_s() / 3600  # duration in seconds, divide by 3600 to get hours
-        average_consumption_mWh = average_power_mW * measurement_duration_h
-        return average_consumption_mWh
+        with self.measure_lock:
+            average_current_mA = self.get_average_current_mA()
+            average_power_mW = (self.source_voltage_mV / 1000) * average_current_mA  # divide by 1000 as source voltage is in millivolts - this gives us milliwatts
+            measurement_duration_h = self.get_measurement_duration_s() / 3600  # duration in seconds, divide by 3600 to get hours
+            average_consumption_mWh = average_power_mW * measurement_duration_h
+            return average_consumption_mWh
 
     def get_average_charge_mC(self):
         """Returns average charge in milli coulomb"""
-        average_current_mA = self.get_average_current_mA()
-        measurement_duration_s = self.get_measurement_duration_s()  # in seconds
-        return average_current_mA * measurement_duration_s
+        with self.measure_lock:
+            average_current_mA = self.get_average_current_mA()
+            measurement_duration_s = self.get_measurement_duration_s()  # in seconds
+            return average_current_mA * measurement_duration_s
 
     def get_measurement_duration_s(self):
         """Returns duration of measurement"""
