@@ -1,11 +1,14 @@
 import time
 import csv
 import datetime
+import logging
 from threading import Thread
 # import numpy as np
 # import matplotlib.pyplot as plt
 # import matplotlib
 from ppk2_api.ppk2_api import PPK2_MP as PPK2_API
+
+logger = logging.getLogger(__name__)
 
 class PowerProfiler():
     def __init__(self, serial_port=None, source_voltage_mV=3300, filename=None):
@@ -14,22 +17,22 @@ class PowerProfiler():
         self.measurement_thread = None
         self.ppk2 = None
 
-        print(f"Initing power profiler")
+        logger.debug("Initing power profiler")
 
         # try:
         if serial_port:
             self.ppk2 = PPK2_API(serial_port)
         else:
             serial_port = self.discover_port()
-            print(f"Opening serial port: {serial_port}")
+            logger.debug("Opening serial port: %s", serial_port)
             if serial_port:
                 self.ppk2 = PPK2_API(serial_port)
 
         try:
             ret = self.ppk2.get_modifiers()  # try to read modifiers, if it fails serial port is probably not correct
-            print(f"Initialized ppk2 api: {ret}")
+            logger.debug("Initialized ppk2 api: %s", ret)
         except Exception as e:
-            print(f"Error initializing power profiler: {e}")
+            logger.debug("Error initializing power profiler: %s", e)
             ret = None
             raise e
 
@@ -43,7 +46,7 @@ class PowerProfiler():
 
             self.ppk2.set_source_voltage(self.source_voltage_mV)  # set to 3.3V
 
-            print(f"Set power profiler source voltage: {self.source_voltage_mV}")
+            logger.debug("Set power profiler source voltage: %s mV", self.source_voltage_mV)
 
             self.measuring = False
             self.current_measurements = []
@@ -82,29 +85,29 @@ class PowerProfiler():
         self.measuring = False
         self.stop = True
 
-        print("Deleting power profiler")
+        logger.debug("Deleting power profiler")
 
         if self.measurement_thread:
-            print(f"Joining measurement thread")
+            logger.debug("Joining measurement thread")
             self.measurement_thread.join()
             self.measurement_thread = None
 
         if self.ppk2:
-            print(f"Disabling ppk2 power")
+            logger.debug("Disabling ppk2 power")
             self.disable_power()
             del self.ppk2
 
-        print(f"Deleted power profiler")
+        logger.debug("Deleted power profiler")
 
     def discover_port(self):
         """Discovers ppk2 serial port"""
         ppk2s_connected = PPK2_API.list_devices()
         if(len(ppk2s_connected) == 1):
             ppk2_port = ppk2s_connected[0]
-            print(f'Found PPK2 at {ppk2_port}')
+            logger.debug('Found PPK2 at %s', ppk2_port)
             return ppk2_port
         else:
-            print(f'Too many connected PPK2\'s: {ppk2s_connected}')
+            logger("Too many connected PPK2s: %s", ppk2s_connected)
             return None
 
     def enable_power(self):
