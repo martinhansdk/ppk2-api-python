@@ -8,14 +8,24 @@ from ppk2_api.ppk2_api import PPK2_MP as PPK2_API
 logger = logging.getLogger(__name__)
 
 class PowerProfiler():
-    def __init__(self, serial_port=None, source_voltage_mV=3300, filename=None, source_meter=True):
-        """Initialize PPK2 power profiler with serial"""
+    def __init__(self, serial_port=None, source_voltage_mV=3300, filename=None, source_meter=True, fetch_interval_s=0.1):
+        """Initialize PPK2 power profiler with serial.
+        
+        Keyword arguments:
+        serial_port -- the name of the serial port use to access the PPK2. If None, the port is detected automatically.
+        source_voltage_mV -- the output voltage in mV the source meter is set to initially.
+        filename -- the path to a CSV file. If not None, this file will be created and the collected data is written to it whenever stop_measurement() is called.
+        source_meter -- if set to True, then the device is operated in source meter mode. If set to false, ampere meter mode is used.
+        fetch_interval -- the number of seconds betweem fetching data from the measurement process. The measurement process keeps up to 10 seconds of data, so it is not necessarry to use a very low value here.
+        """
         self.measuring = None
         self.measurement_thread = None
         # measure_lock is taken by the measurement thread whenever it is fetching data and by the main thread whenever measuring is paused
         # it is also used to protect the member variables that are accessed both by the main thread and the measurement thread
         self.measure_lock = RLock()
         self.measure_lock.acquire()
+
+        self.fetch_interval = fetch_interval_s
 
         # stop is a flag which is used to signal to the 
         self.stop = Event()
@@ -156,7 +166,7 @@ class PowerProfiler():
                 if read_data != b'':
                     samples = self.ppk2.get_samples(read_data)
                     self.current_measurements += samples  # can easily sum lists, will append individual data
-            time.sleep(0.001)  # TODO figure out correct sleep duration
+            time.sleep(self.fetch_interval)
 
     def _average_samples(self, list, window_size):
         """Average samples based on window size"""
