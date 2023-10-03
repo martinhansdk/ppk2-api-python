@@ -8,7 +8,7 @@ from ppk2_api.ppk2_api import PPK2_MP as PPK2_API
 logger = logging.getLogger(__name__)
 
 class PowerProfiler():
-    def __init__(self, serial_port=None, source_voltage_mV=3300, filename=None):
+    def __init__(self, serial_port=None, source_voltage_mV=3300, filename=None, source_meter=True):
         """Initialize PPK2 power profiler with serial"""
         self.measuring = None
         self.measurement_thread = None
@@ -37,7 +37,10 @@ class PowerProfiler():
             self.ppk2 = None
             raise Exception(f"Error when initing PowerProfiler with serial port {serial_port}")
         else:
-            self.ppk2.use_source_meter()
+            if source_meter:
+                self.ppk2.use_source_meter()
+            else:
+                self.ppk2.use_ampere_meter()
 
             self.source_voltage_mV = source_voltage_mV
 
@@ -118,6 +121,20 @@ class PowerProfiler():
         """Disable ppk2 power"""
         if self.ppk2:
             self.ppk2.toggle_DUT_power("OFF")
+            return True
+        return False
+
+    def use_source_meter(self):
+        """Switch to source meter mode"""
+        if self.ppk2:
+            self.ppk2.use_source_meter()
+            return True
+        return False
+
+    def use_ampere_meter(self):
+        """Switch to source meter mode"""
+        if self.ppk2:
+            self.ppk2.use_ampere_meter()
             return True
         return False
 
