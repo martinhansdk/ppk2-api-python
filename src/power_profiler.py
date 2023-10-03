@@ -3,9 +3,6 @@ import csv
 import datetime
 import logging
 from threading import Thread
-# import numpy as np
-# import matplotlib.pyplot as plt
-# import matplotlib
 from ppk2_api.ppk2_api import PPK2_MP as PPK2_API
 
 logger = logging.getLogger(__name__)
