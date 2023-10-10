@@ -59,9 +59,7 @@ class PowerProfiler():
             else:
                 self.ppk2.use_ampere_meter()
 
-            self.source_voltage_mV = source_voltage_mV
-
-            self.ppk2.set_source_voltage(self.source_voltage_mV)  # set to 3.3V
+            self.set_source_voltage(source_voltage_mV)
 
             logger.debug("Set power profiler source voltage: %s mV", self.source_voltage_mV)
 
@@ -141,6 +139,15 @@ class PowerProfiler():
                 return True
             return False
 
+    def set_source_voltage(self, voltage_mV):
+        with self.measure_lock:
+            if self.ppk2:
+                assert self.ppk2.vdd_low <= voltage_mV <= self.ppk2.vdd_high, f"Voltage must be in range [{self.ppk2.vdd_low}:self.ppk2.vdd_high] mV"
+                self.ppk2.set_source_voltage(voltage_mV)
+                self.source_voltage_mV = voltage_mV
+                return True
+            return False
+        
     def use_source_meter(self):
         """Switch to source meter mode"""
         with self.measure_lock:
@@ -161,7 +168,6 @@ class PowerProfiler():
         """Endless measurement loop will run in a thread"""
         while True and not self.stop.is_set():
             with self.measure_lock:
-                # read data if currently measuring
                 read_data = self.ppk2.get_data()
                 if read_data != b'':
                     samples = self.ppk2.get_samples(read_data)
@@ -188,14 +194,13 @@ class PowerProfiler():
                 self.measurement_start_time = time.time()
 
     def stop_measuring(self):
-        """Stop measuring and return average of period"""
+        """Stop measuring"""
         with self.measure_lock:
             self.measuring = False
             self.measure_lock.acquire()
             self.measurement_stop_time = time.time()
             self.ppk2.stop_measuring()  # send command to ppk2
 
-            #samples_average = self._average_samples(self.current_measurements, 1000)
             if self.filename is not None:
                 self.write_csv_rows(self.current_measurements)
 
