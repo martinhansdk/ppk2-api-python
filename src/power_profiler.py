@@ -170,7 +170,7 @@ class PowerProfiler():
             with self.measure_lock:
                 read_data = self.ppk2.get_data()
                 if read_data != b'':
-                    samples = self.ppk2.get_samples(read_data)
+                    samples, raw_digital = self.ppk2.get_samples(read_data)
                     self.current_measurements += samples  # can easily sum lists, will append individual data
             time.sleep(self.fetch_interval)
 
