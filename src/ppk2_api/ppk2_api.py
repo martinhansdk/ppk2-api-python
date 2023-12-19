@@ -391,7 +391,7 @@ class PPK_Fetch(threading.Thread):
     Background process for polling the data in multi-threaded variant
     '''
     def __init__(self, ppk2, quit_evt, buffer_len_s=10, buffer_chunk_s=0.5):
-        super().__init__()
+        super().__init__(daemon=True)
         self._ppk2 = ppk2
         self._quit = quit_evt
 
@@ -479,13 +479,14 @@ class PPK2_MP(PPK2_API):
     def __del__(self):
         """Destructor"""
         PPK2_API.stop_measuring(self)
-        self._quit_evt.clear()
-        self._quit_evt = None
-        del self._quit_evt
-        if self._fetcher is not None:
-            self._fetcher.join()
-        self._fetcher = None
-        del self._fetcher
+        if hasattr(self, '_quit_evt') and self._quit_evt is not None:
+            self._quit_evt.clear()
+            self._quit_evt = None
+            del self._quit_evt
+            if self._fetcher is not None:
+                self._fetcher.join()
+            self._fetcher = None
+            del self._fetcher
 
     def start_measuring(self):
         # discard the data in the buffer
